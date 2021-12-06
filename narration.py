@@ -1,6 +1,6 @@
 import tonkadur
 
-class Storyline:
+class Narration:
     NOT_STARTED = -1
     WANTS_INT = 0
     WANTS_STR = 1
@@ -12,7 +12,7 @@ class Storyline:
         self.state = tonkadur.Tonkadur(filename)
         self.last_username = None
         self.last_user_id = None
-        self.status = Storyline.NOT_STARTED
+        self.status = Narration.NOT_STARTED
         self.next_input_min = 0
         self.next_input_max = 0
         self.text_options = []
@@ -33,7 +33,7 @@ class Storyline:
             and (user_input <= self.next_input_max)
         ):
             self.state.store_integer(user_input, username, user_id)
-            self.status = Storyline.IS_RUNNING
+            self.status = Narration.IS_RUNNING
             self.run()
         else:
             self.display_string(
@@ -49,7 +49,7 @@ class Storyline:
             (len(text) >= self.next_input_min)
             and (len(text) <= self.next_input_max)
         ):
-            self.status = Storyline.IS_RUNNING
+            self.status = Narration.IS_RUNNING
             self.state.store_string(user_input, username, user_id)
             self.run()
         else:
@@ -72,7 +72,7 @@ class Storyline:
             )
             return
 
-        self.status = Storyline.IS_RUNNING
+        self.status = Narration.IS_RUNNING
         self.state.resolve_choice_to(self.text_options[user_input], username, user_id)
         self.run()
 
@@ -80,19 +80,19 @@ class Storyline:
         self.last_username = username
         self.last_user_id = user_id
 
-        if self.status == Storyline.NOT_STARTED:
+        if self.status == Narration.NOT_STARTED:
             self.run()
-        elif self.status == Storyline.WANTS_INT:
+        elif self.status == Narration.WANTS_INT:
             self.handle_int_input(text, username, user_id)
-        elif self.status == Storyline.WANTS_STR:
+        elif self.status == Narration.WANTS_STR:
             return self.handle_str_input(text, username, user_id)
-        elif self.status == Storyline.WANTS_USER_CHOICE:
+        elif self.status == Narration.WANTS_USER_CHOICE:
             return self.handle_option_input(text, username, user_id)
         else:
             self.display_string("No input expected at this point.")
 
     def handle_event_input (self, event_name, event_data, username, user_id):
-        if not (self.status == Storyline.WANTS_USER_CHOICE):
+        if not (self.status == Narration.WANTS_USER_CHOICE):
             print(
                 "[W] Ignoring event \""
                 + str(event_name)
@@ -121,7 +121,7 @@ class Storyline:
             if (isinstance(c, str)):
                 str_content += c
             else:
-                str_content += Storyline.text_to_string(c)
+                str_content += Narration.text_to_string(c)
 
         if (not (text['effect'] is None)):
             str_content += "}"
@@ -130,7 +130,7 @@ class Storyline:
 
 
     def display_text (self, text):
-        self.display_string(Storyline.text_to_string(text))
+        self.display_string(Narration.text_to_string(text))
 
     def display_string (self, string):
         self.output += string
@@ -145,23 +145,23 @@ class Storyline:
         return (len(self.output) > 0)
 
     def has_ended (self):
-        return (self.status == Storyline.HAS_ENDED)
+        return (self.status == Narration.HAS_ENDED)
 
     def run (self):
         result = self.state.run()
         result_category = result['category']
 
-        if (self.status == Storyline.NOT_STARTED):
-            self.status = Storyline.IS_RUNNING
+        if (self.status == Narration.NOT_STARTED):
+            self.status = Narration.IS_RUNNING
 
         if (result_category == "end"):
-            self.status = Storyline.HAS_ENDED
+            self.status = Narration.HAS_ENDED
         elif (result_category == "display"):
             self.display_text(result['content'])
             self.run()
         elif (result_category == "prompt_integer"):
             self.reset_next_input()
-            self.status = Storyline.WANTS_INT
+            self.status = Narration.WANTS_INT
             self.next_input_min = result['min']
             self.next_input_max = result['max']
             self.display_text(result['label'])
@@ -174,7 +174,7 @@ class Storyline:
             )
         elif (result_category == "prompt_string"):
             self.reset_next_input()
-            self.status = Storyline.WANTS_STR
+            self.status = Narration.WANTS_STR
             self.next_input_min = result['min']
             self.next_input_max = result['max']
             self.display_text(result['label'])
@@ -206,7 +206,7 @@ class Storyline:
             self.run()
         elif (result_category == "resolve_choice"):
             self.reset_next_input()
-            self.status = Storyline.WANTS_USER_CHOICE
+            self.status = Narration.WANTS_USER_CHOICE
             current_choice = 0
 
             self.display_string("\n")
