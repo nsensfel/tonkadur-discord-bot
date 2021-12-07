@@ -22,6 +22,7 @@ parser.add_argument(
     '-t',
     '--token',
     type = str,
+    required=True,
     help = 'Discord token.',
 )
 
@@ -43,12 +44,11 @@ parser.add_argument(
 args = parser.parse_args()
 client = discord.Client()
 
-administrators = args.admin
-
+administrators = dict()
 active_narrations_by_post = dict()
 active_narrations_by_id = dict()
 available_stories = []
-orphaned_narrations []
+orphaned_narrations = []
 paused_narrations = []
 
 class StoryFile:
@@ -63,24 +63,27 @@ def get_command_help ():
 """Tonkadur interface to Discord.
 https://github.com/nsensfel/tonkadir-discord-bot
 
+The '+' symbol indicates that the command can be applied to multiple values at
+once. This feature is not yet implemented.
+
 Available commands (global):
 - available             Provides a list of available stories.
 - active                Provides a list of active narrations.
 - paused                Provides a list of paused narrations.
 - start INDEX           Starts the story of index INDEX.
-- administors           Lists all administrators.
+- administrators           Lists all administrators.
 - orphaned              Lists active narrations from deleted/disabled stories.
 - narrations_of INDEX   Lists active narrations for story INDEX.
 
 Available commands (narration initiator or admin):
-- end INDEX+        Ends the narration of index INDEX
-- pause INDEX+      Pauses the narration of index INDEX
-- resume INDEX+     Resumes the narration of index INDEX
+- end INDEX+    Ends the narration of index INDEX
+- pause INDEX+  Pauses the narration of index INDEX
+- resume INDEX  Resumes the narration of index INDEX
 
 Available commands (admin):
-- add_admin REF+                Adds REF as an admin.
-- rm_admin REF+                 Remove REF as an admin.
-- add_story STORY_FILE          Adds a new story with file STORY_FILE.
+- add_admin TAG+                Adds TAG as an admin.
+- rm_admin TAG+                 Remove TAG as an admin.
+- add_story_file STORY_FILE     Adds a new story with file STORY_FILE.
 - rm_story_file STORY_FILE      Removes stories and narrations that use this STORY_FILE.
 - disable_story INDEX+          Removes story at INDEX (does not remove narrations).
 - disable_story_file STORY_FILE Removes stories that use this STORY_FILE (does not remove narrations).
@@ -91,47 +94,77 @@ Available commands (admin):
 ################################################################################
 ### ADMIN COMMANDS #############################################################
 ################################################################################
-def add_admin (user_id, requester_id):
+def handle_add_admin_command (server, user_tag, requester_name, requester_id):
     global administrators
 
     if not (requester_id in administrators):
-        return "Denied. You are not registered as an administrator."
+        return ("Denied. You are not registered as an administrator.", None)
 
-    if (user_id in administrators):
-        return "This user was already an administrator."
+    user_data = user_tag.split('#')
 
-    administrators.append(user_id)
+    if (len(user_data) != 2):
+        return ("Invalid user tag. Use something like nsensfel#0001.", None)
 
-    return "This user is now an administrator."
+    user = discord.utils.get(
+        server.members,
+        name = user_data[0],
+        discriminator = user_data[1]
+    )
 
-def rm_admin (user_id, requester):
+    if (user is None):
+        return ("Unknown user '" + user_data + "'.", None)
+
+    if (user.id in administrators):
+        return ("This user was already an administrator.", None)
+
+    administrators[user.id] = user_tag
+
+    return (user_data + " is now an administrator.", None)
+
+def handle_rm_admin_command (server, user_tag, requester_name, requester_id):
     global administrators
 
     if not (requester_id in administrators):
-        return "Denied. You are not registered as an administrator."
+        return ("Denied. You are not registered as an administrator.", None)
 
-    if not (user_id in administrators):
-        r
-        eturn "This user already not an administrator."
+    user_data = user_tag.split('#')
 
-    administrators.remove(user_id)
+    if (len(user_data) != 2):
+        return ("Invalid user tag. Use something like nsensfel#0001.", None)
 
-    return "This user is no longer an administrator."
+    user = discord.utils.get(
+        server.members,
+        name = user_data[0],
+        discriminator = user_data[1]
+    )
 
-def add_story (requester_id, story_filename):
+    if (user is None):
+        return ("Unknown user '" + user_data + "'.", None)
+
+    if not (user.id in administrators):
+        return ("This user is not an administrator.", None)
+
+    del administrators.remove[user.id]
+
+    return (user_data + " is no longer an administrator.", None)
+
+def handle_add_story_file_command (story_filename, requester_name, requester_id):
     global administrators
     global available_stories
 
     if not (requester_id in administrators):
-        return "Denied. You are not registered as an administrator."
+        return ("Denied. You are not registered as an administrator.", None)
 
     story_file = StoryFile(story_filename)
 
     available_stories.append(story_file)
 
-    return "Story added (index: " + str(len(available_stories) - 1) + ")."
+    return (
+        ("Story added (index: " + str(len(available_stories) - 1) + ")."),
+        None
+    )
 
-def rm_story_file (requester_id, story_filename):
+def handle_rm_story_file_command (story_filename, requester_name, requester_id):
     global administrators
     global available_stories
     global active_narrations_by_post
@@ -139,7 +172,7 @@ def rm_story_file (requester_id, story_filename):
     global orphaned_narrations
 
     if not (requester_id in administrators):
-        return "Denied. You are not registered as an administrator."
+        return ("Denied. You are not registered as an administrator.", None)
 
     affected_stories = 0
     affected_narrations = 0
@@ -157,15 +190,9 @@ def rm_story_file (requester_id, story_filename):
             affected_stories += 1
             del available_stories[i]
 
-
             for removed_narration in story.narrations:
                 affected_narrations += 1
-                del active_narrations_by_id[removed_narration.get_id()]
-
-                if (removed_narration.get_is_paused()):
-                    paused_narrations.remove(removed_narration)
-                else:
-                    del active_narrations_by_post[removed_narration.get_last_post_id()]
+                delete_narration(removed_narration)
 
             result += "Removed story \""
             result += story.name
@@ -191,26 +218,29 @@ def rm_story_file (requester_id, story_filename):
             i += 1
 
     return (
-        result
-        + "Story file removed ("
-        + str(affected_stories)
-        + " stories, "
-        + str(affected_narrations)
-        + " narrations, and "
-        + str(affected_orphaned_narrations)
-        + " were affected)."
+        (
+            result
+            + "Story file removed ("
+            + str(affected_stories)
+            + " stories, "
+            + str(affected_narrations)
+            + " narrations, and "
+            + str(affected_orphaned_narrations)
+            + " were affected)."
+        ),
+        None
     )
 
-def disable_story (requester_id, story_index):
+def handle_disable_story_command (story_index, requester_name, requester_id):
     global administrators
     global available_stories
     global orphaned_narrations
 
     if not (requester_id in administrators):
-        return "Denied. You are not registered as an administrator."
+        return ("Denied. You are not registered as an administrator.", None)
 
     if ((story_index < 0) or (story_index >= len(available_stories))):
-        return "Invalid story index."
+        return ("Invalid story index.", None)
 
     deleted_story = available_stories[story_index]
 
@@ -226,15 +256,15 @@ def disable_story (requester_id, story_index):
 
     del available_stories[story_index]
 
-    return result
+    return (result, None)
 
-def disable_story_file (requester_id, story_filename):
+def handle_disable_story_file_command (story_filename, requester_name, requester_id):
     global administrators
     global available_stories
     global orphaned_narrations
 
     if not (requester_id in administrators):
-        return "Denied. You are not registered as an administrator."
+        return ("Denied. You are not registered as an administrator.", None)
 
     affected_stories = 0
 
@@ -263,44 +293,150 @@ def disable_story_file (requester_id, story_filename):
             i += 1
 
     return (
-        result
-        + "Story file removed ("
-        + str(affected_stories)
-        + " stories were affected)."
+        (
+            result
+            + "Story file removed ("
+            + str(affected_stories)
+            + " stories were affected)."
+        ),
+        None
     )
 
-def set_story_name (requester_id, story_index, name):
+def handle_set_story_name_command (story_index, name, requester_name, requester_id):
     global administrators
     global available_stories
 
     if not (requester_id in administrators):
-        return "Denied. You are not registered as an administrator."
+        return ("Denied. You are not registered as an administrator.", None)
 
     if ((story_index < 0) or (story_index >= len(available_stories))):
-        return "Invalid story index."
+        return ("Invalid story index.", None)
 
     available_stories[story_index].name = name
 
-    return "Story name set."
+    return ("Story name set.", None)
 
-def set_story_description (requester_id, story_index, description):
+def handle_set_story_description_command (story_index, description, requester_name, requester_id):
     global administrators
     global available_stories
 
     if not (requester_id in administrators):
-        return "Denied. You are not registered as an administrator."
+        return ("Denied. You are not registered as an administrator.", None)
 
     if ((story_index < 0) or (story_index >= len(available_stories))):
-        return "Invalid story index."
+        return ("Invalid story index.", None)
 
     available_stories[story_index].description = description
 
-    return "Story description set."
+    return ("Story description set.", None)
+
+################################################################################
+### NARRATION INITIATOR COMMANDS ###############################################
+################################################################################
+def delete_narration (narration):
+    global active_narrations_by_post
+    global active_narrations_by_id
+    global paused_narrations
+    global available_stories
+
+    del active_narrations_by_id[narration.get_id()]
+
+    if (narration.get_is_paused()):
+        paused_narrations.remove(narration)
+    else:
+        del active_narrations_by_post[narration.get_last_post_id()]
+
+    story_filename = narration.get_story_file().filename
+
+    for story in available_stories:
+        if (story.filename == story_filename):
+            try:
+                story.narrations.remove(narration)
+            except ValueError: # The narration wasn't found.
+                pass # That's not an issue.
+
+def handle_end_narration_command (narration_id, requester_name, requester_id):
+    global administrators
+    global active_narrations_by_id
+
+    if not (narration_id in active_narrations_by_id):
+        return ("There is no narration with this ID.", None)
+
+    narration = active_narrations_by_id[narration_id]
+
+    if (
+        (requestor_id not in administrators)
+        and (narration.get_requestor_id != requestor_id)
+    ):
+        return (
+            "Denied. You are not an administrator or this narration's initiator.",
+            None
+        )
+
+    delete_narration(narration)
+
+    return ("Narration " + str(narration_id) + " ended.", None)
+
+def handle_pause_narration_command (narration_id, requestor_name, requestor_id):
+    global administrators
+    global active_narrations_by_post
+    global active_narrations_by_id
+    global paused_narrations
+
+    if not (narration_id in active_narrations_by_id):
+        return ("There is no narration with this ID.", None)
+
+    narration = active_narrations_by_id[narration_id]
+
+    if (
+        (requestor_id not in administrators)
+        and (narration.get_requestor_id != requestor_id)
+    ):
+        return (
+            "Denied. You are not an administrator or this narration's initiator.",
+            None
+        )
+
+    if (narration.get_is_paused()):
+        return ("This narration is already paused.", None)
+    else:
+        del active_narrations_by_post[narration.get_last_post_id()]
+        paused_narrations.append(narration)
+        narration.toggle_is_paused()
+
+        return ("Narration paused", None)
+
+def handle_resume_narration_command (narration_id, requestor_name, requestor_id):
+    global administrators
+    global active_narrations_by_post
+    global active_narrations_by_id
+
+    if not (narration_id in active_narrations_by_id):
+        return ("There is no narration with this ID.", None)
+
+    narration = active_narrations_by_id[narration_id]
+
+    if (
+        (requestor_id not in administrators)
+        and (narration.get_requestor_id != requestor_id)
+    ):
+        return (
+            "Denied. You are not an administrator or this narration's initiator.",
+            None
+        )
+
+    if (narration.get_is_paused()):
+        paused_narrations.remove(narration)
+        narration.toggle_is_paused()
+
+        return (narration.get_previous_output(), narration)
+    else:
+        return ("This narration was not paused.", None)
 
 ################################################################################
 ### GLOBAL COMMANDS ############################################################
 ################################################################################
-def get_story_list ():
+def handle_get_story_list_command ():
     global available_stories
 
     result = "Available stories:"
@@ -317,9 +453,9 @@ def get_story_list ():
         result += story_file.description
         result += "\n"
 
-    return result
+    return (result, None)
 
-def get_narration_list ():
+def handle_get_active_narration_list_command ():
     global active_narrations_by_id
 
     result = "Active narrations:"
@@ -331,84 +467,297 @@ def get_narration_list ():
         result += narration.get_story_file().get_name()
         result += "("
         result += narration.get_story_file().get_filename()
-        result += ")"
-        result += "\n"
-        result += "Started by: "
+        result += ")\nStarted by: "
         result += narration.get_initiator_name()
         result += "("
         result += narration.get_initiator_id()
-        result += ")"
+        result += ")\n"
+
+        if (narration.get_is_paused()):
+            result += "Paused.\n"
+
+    return (result, None)
+
+def handle_get_paused_narration_list_command ():
+    global paused_narrations
+
+    result = "Paused narrations:"
+
+    for narration in paused_narrations:
         result += "\n"
+        result += str(narration.get_id())
+        result += ". "
+        result += narration.get_story_file().get_name()
+        result += "("
+        result += narration.get_story_file().get_filename()
+        result += ")\nStarted by: "
+        result += narration.get_initiator_name()
+        result += "("
+        result += narration.get_initiator_id()
+        result += ")\n"
 
-    return result
+    return (result, None)
 
-def remove_narration (user_id, index):
+def handle_get_orphaned_narration_list_command ():
+    global orphaned_narrations
+
+    result = "Orphaned narrations:"
+
+    for narration in orphaned_narrations:
+        result += "\n"
+        result += str(narration.get_id())
+        result += ". "
+        result += narration.get_story_file().get_name()
+        result += "("
+        result += narration.get_story_file().get_filename()
+        result += ")\nStarted by: "
+        result += narration.get_initiator_name()
+        result += "("
+        result += narration.get_initiator_id()
+        result += ")\n"
+
+        if (narration.get_is_paused()):
+            result += "Paused.\n"
+
+    return (result, None)
+
+def handle_get_administrator_list_command ():
     global administrators
-    global active_narrations_by_id
-    global active_narrations_by_post
 
-    if not (index in active_narrations_by_id):
-        return "There is no narration with this index."
+    result = "Administrators:"
 
-    narration = active_narrations_by_id[index]
+    for admin_id in administrators:
+        result += "\n - "
+        result += administrators[admin_id]
+        result += " ("
+        result += admin_id
+        result += ")"
 
-    if (
-        (user_id != narration.get_initiator_id())
-        and not (user_id in administrators)
-    ):
-        return "Denied. You are not the initiator of this narration nor an administrator."
+    return (result, None)
 
-    del active_narrations_by_id[index]
-    del active_narrations_by_post[narration.get_last_post_id()]
+def handle_narrations_of_command (index):
+    global available_stories
 
-    return "Narration " + str(index) + " removed."
+    if ((index < 0) or (index >= len(available_stories))):
+        if (len(available_stories) == 0):
+            return ("No stories available.", None)
+        else:
+            return (
+                (
+                    "Choose a story index between 0 and "
+                    + str(len(available_stories) - 1)
+                    + "."
+                ),
+                None
+            )
 
-def start_story (index, user_id, user_name):
+    result = "Narrations for this story:"
+
+    for narration in available_stories[index].narrations:
+        result += "\n"
+        result += str(narration.get_id())
+        result += ". "
+        result += narration.get_story_file().get_name()
+        result += "("
+        result += narration.get_story_file().get_filename()
+        result += ")\nStarted by: "
+        result += narration.get_initiator_name()
+        result += "("
+        result += narration.get_initiator_id()
+        result += ").\n"
+
+        if (narration.get_is_paused()):
+            result += "Paused.\n"
+
+    return (result, None)
+
+def handle_start_narration_command (index, requester_name, requester_id):
     global available_stories
     global active_narrations_by_id
 
-    if ((index < 0) or (index >= len(available_stories)))
+    if ((index < 0) or (index >= len(available_stories))):
         if (len(available_stories) == 0):
-            return "No stories available."
+            return ("No stories available.", None)
         else:
             return (
-                "Choose a story index between 0 and "
-                + str(len(available_stories) - 1)
-                + "."
+                (
+                    "Choose a story index between 0 and "
+                    + str(len(available_stories) - 1)
+                    + "."
+                ),
+                None
             )
 
-    new_story = Narration(available_stories[index], user_id, user_name)
-    active_narrations_by_id[new_story.get_id()] = new_story
-    new_story.run()
+    new_narration = Narration(
+        available_stories[index],
+        requester_name,
+        requester_id
+    )
+    active_narrations_by_id[new_narration.get_id()] = new_narration
+    new_narration.run()
 
-    result = "Narration " + str(new_story.get_id()) + ":\n"
-    result += new_story.pop_output()
-
-    return result
+    return (new_story.pop_output(), new_narration)
 
 ################################################################################
 ### EVENT HANDLING #############################################################
 ################################################################################
 def handle_possible_command (message):
     print("Was mentioned.")
-    message_content = message.clean_content.split(" ")
+
+    message_content = message.clean_content.split(' ')
 
     if (len(message_content) < 2):
-        return get_command_help()
-    elif (message_content[1] == "available"):
-        return get_story_list()
-    elif (message_content[1] == "start")
-        if (len(message_content) < 3):
-            return get_command_help()
-        else
-            return start_story(int(message_content[2]))
-    elif (message_content[1] == "end")
-        if (len(message_content) < 3):
-            return get_command_help()
-        else
-            return end_narration(message, int(message_content[2]))
+        return (get_command_help(), None)
 
-    return get_command_help()
+    #### GLOBAL COMMANDS
+    elif (message_content[1] == "available"):
+        return handle_get_story_list_command()
+
+    elif (message_content[1] == "active"):
+        return handle_get_active_narration_list_command()
+
+    elif (message_content[1] == "paused"):
+        return handle_get_paused_narration_list_command()
+
+    elif (message_content[1] == "start"):
+        if (len(message_content) < 3):
+            return (get_command_help(), None)
+        else:
+            return handle_start_narration_command(
+                int(message_content[2]),
+                message.author.display_name,
+                message.author.id
+            )
+
+    elif (message_content[1] == "administrators"):
+        return handle_get_administrator_list_command()
+
+    elif (message_content[1] == "orphaned"):
+        return handle_get_orphaned_narration_list_command()
+
+    elif (message_content[1] == "narrations_of"):
+        if (len(message_content) < 3):
+            return (get_command_help(), None)
+        else:
+            return handle_narrations_of_command(int(message_content[2]))
+
+    #### NARRATION INITIATOR COMMANDS
+    elif (message_content[1] == "end"):
+        if (len(message_content) < 3):
+            return (get_command_help(), None)
+        else:
+            return handle_end_narration_command(
+                int(message_content[2]),
+                message.author.display_name,
+                message.author.id
+            )
+
+    elif (message_content[1] == "pause"):
+        if (len(message_content) < 3):
+            return (get_command_help(), None)
+        else:
+            return handle_pause_narration_command(
+                int(message_content[2]),
+                message.author.display_name,
+                message.author.id
+            )
+
+    elif (message_content[1] == "resume"):
+        if (len(message_content) < 3):
+            return (get_command_help(), None)
+        else:
+            return handle_resume_narration_command(
+                int(message_content[2]),
+                message.author.display_name,
+                message.author.id
+            )
+
+    #### ADMINISTRATOR COMMANDS
+    elif (message_content[1] == "add_admin"):
+        if (len(message_content) < 3):
+            return (get_command_help(), None)
+        else:
+            return handle_add_admin_command(
+                message.guild,
+                message_content[2],
+                message.author.display_name,
+                message.author.id
+            )
+
+    elif (message_content[1] == "rm_admin"):
+        if (len(message_content) < 3):
+            return (get_command_help(), None)
+        else:
+            return handle_rm_admin_command(
+                message.guild,
+                message_content[2],
+                message.author.display_name,
+                message.author.id
+            )
+
+    elif (message_content[1] == "add_story_file"):
+        if (len(message_content) < 3):
+            return (get_command_help(), None)
+        else:
+            return handle_add_story_file_command(
+                " ".join(message_content[2:]),
+                message.author.display_name,
+                message.author.id
+            )
+
+    elif (message_content[1] == "rm_story_file"):
+        if (len(message_content) < 3):
+            return (get_command_help(), None)
+        else:
+            return handle_rm_story_file_command(
+                " ".join(message_content[2:]),
+                message.author.display_name,
+                message.author.id
+            )
+
+    elif (message_content[1] == "disable_story"):
+        if (len(message_content) < 3):
+            return (get_command_help(), None)
+        else:
+            return handle_disable_story_command(
+                int(message_content[2]),
+                message.author.display_name,
+                message.author.id
+            )
+
+    elif (message_content[1] == "disable_story_file"):
+        if (len(message_content) < 3):
+            return (get_command_help(), None)
+        else:
+            return handle_disable_story_file_command(
+                " ".join(message_content[2:]),
+                message.author.display_name,
+                message.author.id
+            )
+
+    elif (message_content[1] == "set_story_name"):
+        if (len(message_content) < 3):
+            return (get_command_help(), None)
+        else:
+            return handle_set_story_name_command(
+                int(message_content[2]),
+                " ".join(message_content[3:]),
+                message.author.display_name,
+                message.author.id
+            )
+
+    elif (message_content[1] == "set_story_desc"):
+        if (len(message_content) < 3):
+            return (get_command_help(), None)
+        else:
+            return handle_set_story_description_command(
+                int(message_content[2]),
+                " ".join(message_content[3:]),
+                message.author.display_name,
+                message.author.id
+            )
+
+    return (get_command_help(), None)
 
 def handle_possible_story_answer (message):
     global active_narrations_by_post
@@ -418,11 +767,11 @@ def handle_possible_story_answer (message):
     if msg_id_replied_to in active_narrations_by_post:
         narration = active_narrations_by_post[msg_id_replied_to]
 
-        result = "Narration " + str(narration.get_id()) + ":\n"
+        result = ""
 
         narration.handle_answer(
             message.clean_content,
-            message.author.name,
+            message.author.display_name,
             message.author.id
         )
 
@@ -435,34 +784,68 @@ def handle_possible_story_answer (message):
 
         if (narration.has_ended()):
             result += "\n\nThis narration has now ended."
-            del active_narrations_by_id[index]
-            del active_narrations_by_post[narration.get_last_post_id()]
+            delete_narration(narration)
+            narration = None
 
-        return result
+        return (result, narration)
+
+    return ("", None)
+
+def replace_narration_post_id (narration, new_post_id):
+    global active_narrations_by_post
+
+    if (narration.get_is_paused()):
+        return
+
+    if (narration.get_post_id() is not None):
+        del active_narrations_by_post[narration.get_post_id()]
+
+    narration.set_last_post_id(new_post_id)
+
+    active_narrations_by_post[new_post_id]
+
 
 @client.event
 async def on_message (message):
     print("message: " + message.clean_content)
 
     if message.reference is not None:
-        output = handle_possible_story_answer(message)
+        (output, maybe_narrative) = handle_possible_story_answer(message)
 
         if (len(output) > 0):
-            await message.channel.send(
+            if (maybe_narrative is not None):
+                output += "\n\nReply to this message to continue the narrative."
+
+            sent_message = await message.channel.send(
                 content = output,
                 reference = message
             )
+
+            if (maybe_narrative is not None):
+                replace_narrative_post_id(
+                    maybe_narrative,
+                    sent_message.reference.message_id
+                )
 
         return
 
     if i_am_mentioned(message.mentions):
-        output = handle_possible_command(message)
+        (output, maybe_narrative) = handle_possible_command(message)
 
         if (len(output) > 0):
-            await message.channel.send(
+            if (maybe_narrative is not None):
+                output += "\n\nReply to this message to continue the narrative."
+
+            sent_message = await message.channel.send(
                 content = output,
                 reference = message
             )
+
+            if (maybe_narrative is not None):
+                replace_narrative_post_id(
+                    maybe_narrative,
+                    sent_message.reference.message_id
+                )
 
         return
 
@@ -470,16 +853,7 @@ def i_am_mentioned (mentions):
     for mention in mentions:
         if mention.bot and mention.name == "Storyteller":
             return True
+
     return False
 
-
-def exit_if_disconnected ():
-    while True:
-        time.sleep(61)
-
-        if  (client.is_closed):
-            print("Timed out.")
-            sys.exit()
-
-threading.Thread(target=exit_if_disconnected).start()
 client.run(args.token)

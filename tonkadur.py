@@ -28,7 +28,7 @@ class Tonkadur:
             else:
                 return copy.deepcopy(self.types[typedef['name']])
 
-    def __init__ (self, json_file):
+    def __init__ (self, actor_name, actor_id, json_file):
         self.memory = dict()
         self.types = dict()
         self.sequences = dict()
@@ -38,7 +38,7 @@ class Tonkadur:
         self.last_choice_index = -1
         self.available_options = []
         self.memorized_target = []
-        self.last_user = ("", "")
+        self.last_actor = (actor_name, actor_id)
 
         with open(json_file, 'r') as f:
             json_content = json.load(f)
@@ -227,14 +227,14 @@ class Tonkadur:
         else:
             print("Unknown Wyrd computation: \"" + computation_category + "\"")
 
-    def resolve_choice_to (self, index, user_name, user_id):
+    def resolve_choice_to (self, index, actor_name, actor_id):
         self.available_options = []
         self.last_choice_index = index
-        self.last_user = (user_name, user_id)
+        self.last_actor = (actor_name, actor_id)
 
-    def store_integer (self, value, user_name, user_id):
+    def store_integer (self, value, actor_name, actor_id):
         current_val = self.memory
-        self.last_user = (user_name, user_id)
+        self.last_actor = (actor_name, actor_id)
 
         for access in self.memorized_target:
             pre_val = current_val
@@ -244,9 +244,9 @@ class Tonkadur:
 
         pre_val[last_access] = value
 
-    def store_string (self, value, user_name, user_id):
+    def store_string (self, value, actor_name, actor_id):
         current_val = self.memory
-        self.last_user = (user_name, user_id)
+        self.last_actor = (actor_name, actor_id)
 
         for access in self.memorized_target:
             pre_val = current_val
@@ -256,7 +256,7 @@ class Tonkadur:
 
         pre_val[last_access] = value
 
-    def run (self):
+    def run (self, actor_name, actor_id):
         while True:
             #print("\nmemory: " + str(self.memory))
             #print("\nline: " + str(self.program_counter))

@@ -8,16 +8,20 @@ class Narration:
     IS_RUNNING = 3
     HAS_ENDED = 4
 
-    def __init__ (self, filename):
-        self.state = tonkadur.Tonkadur(filename)
-        self.last_username = None
-        self.last_user_id = None
+    def __init__ (self, story_file, initiator_name, initiator_id):
         self.status = Narration.NOT_STARTED
+        self.state = tonkadur.Tonkadur(story_file.filename)
+        self.is_paused = False
+        self.initiator_name = None
+        self.initiator_id = None
         self.next_input_min = 0
         self.next_input_max = 0
         self.text_options = []
         self.event_options = []
         self.output = ""
+        self.previous_output = ""
+        self.story_file = story_file
+        self.last_post_id = None
 
     def reset_next_input (self):
         self.next_input_type = None
@@ -26,15 +30,15 @@ class Narration:
         self.text_options = []
         self.event_options = []
 
-    def handle_int_input (self, text, username, user_id):
+    def handle_int_input (self, text, actor_name, actor_id):
         user_input = int(text)
         if (
             (user_input >= self.next_input_min)
             and (user_input <= self.next_input_max)
         ):
-            self.state.store_integer(user_input, username, user_id)
+            self.state.store_integer(user_input, actor_name, actor_id)
             self.status = Narration.IS_RUNNING
-            self.run()
+            self.run(actor_name, actor_id)
         else:
             self.display_string(
                 "Integer should be within ["
@@ -44,14 +48,14 @@ class Narration:
                 + "] range."
             )
 
-    def handle_str_input (self, text, username, user_id):
+    def handle_str_input (self, text, actor_name, actor_id):
         if (
             (len(text) >= self.next_input_min)
             and (len(text) <= self.next_input_max)
         ):
             self.status = Narration.IS_RUNNING
-            self.state.store_string(user_input, username, user_id)
-            self.run()
+            self.state.store_string(user_input, actor_name, actor_id)
+            self.run(actor_name, actor_id)
         else:
             self.display_string(
                 "String size should be within ["
@@ -61,7 +65,7 @@ class Narration:
                 + "] range."
             )
 
-    def handle_option_input (self, text, username, user_id):
+    def handle_option_input (self, text, actor_name, actor_id):
         user_input = int(text)
 
         if (user_input < 0) or (user_input >= len(self.text_options)):
@@ -73,33 +77,30 @@ class Narration:
             return
 
         self.status = Narration.IS_RUNNING
-        self.state.resolve_choice_to(self.text_options[user_input], username, user_id)
-        self.run()
+        self.state.resolve_choice_to(self.text_options[user_input], actor_name, actor_id)
+        self.run(actor_name, actor_id)
 
-    def handle_answer (self, text, username, user_id):
-        self.last_username = username
-        self.last_user_id = user_id
-
+    def handle_answer (self, text, actor_name, actor_id):
         if self.status == Narration.NOT_STARTED:
-            self.run()
+            self.run(actor_name, actor_id)
         elif self.status == Narration.WANTS_INT:
-            self.handle_int_input(text, username, user_id)
+            self.handle_int_input(text, actor_name, actor_id)
         elif self.status == Narration.WANTS_STR:
-            return self.handle_str_input(text, username, user_id)
+            return self.handle_str_input(text, actor_name, actor_id)
         elif self.status == Narration.WANTS_USER_CHOICE:
-            return self.handle_option_input(text, username, user_id)
+            return self.handle_option_input(text, actor_name, actor_id)
         else:
             self.display_string("No input expected at this point.")
 
-    def handle_event_input (self, event_name, event_data, username, user_id):
+    def handle_event_input (self, event_name, event_data, actor_name, actor_id):
         if not (self.status == Narration.WANTS_USER_CHOICE):
             print(
                 "[W] Ignoring event \""
                 + str(event_name)
                 + "\" from "
-                + str(username)
+                + str(actor_name)
                 + " ("
-                + str(user_id)
+                + str(actor_id)
                 + "): not expecting a player choice."
             )
             return
@@ -136,10 +137,28 @@ class Narration:
         self.output += string
 
     def pop_output_string (self):
-        result = self.output
+        self.previous_output = self.output
         self.output = ""
 
-        return result
+        return self.previous_output
+
+    def get_previous_output (self):
+        return self.previous_output
+
+    def get_is_paused (self):
+        return self.is_paused
+
+    def toggle_is_paused (self):
+        self.is_paused = not self.is_paused
+
+        if (self.is_paused):
+            self.last_post_id = None
+
+    def get_last_post_id (self):
+        return self.last_post_id
+
+    def set_last_post_id (self, post_id):
+        self.last_post_id = post_id
 
     def has_output (self):
         return (len(self.output) > 0)
@@ -147,8 +166,8 @@ class Narration:
     def has_ended (self):
         return (self.status == Narration.HAS_ENDED)
 
-    def run (self):
-        result = self.state.run()
+    def run (self, actor_name, actor_id):
+        result = self.state.run(actor_name, actor_id)
         result_category = result['category']
 
         if (self.status == Narration.NOT_STARTED):
@@ -158,7 +177,7 @@ class Narration:
             self.status = Narration.HAS_ENDED
         elif (result_category == "display"):
             self.display_text(result['content'])
-            self.run()
+            self.run(actor_name, actor_id)
         elif (result_category == "prompt_integer"):
             self.reset_next_input()
             self.status = Narration.WANTS_INT
@@ -203,7 +222,7 @@ class Narration:
                 "\nState of memory:\n"
                 + str(state.memory)
             )
-            self.run()
+            self.run(actor_name, actor_id)
         elif (result_category == "resolve_choice"):
             self.reset_next_input()
             self.status = Narration.WANTS_USER_CHOICE
