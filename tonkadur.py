@@ -28,7 +28,7 @@ class Tonkadur:
             else:
                 return copy.deepcopy(self.types[typedef['name']])
 
-    def __init__ (self, actor_name, actor_id, json_file):
+    def __init__ (self, json_file, actor_name, actor_id):
         self.memory = dict()
         self.types = dict()
         self.sequences = dict()

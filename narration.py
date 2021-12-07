@@ -8,12 +8,19 @@ class Narration:
     IS_RUNNING = 3
     HAS_ENDED = 4
 
+    id_generator = 0
+    free_ids = []
+
     def __init__ (self, story_file, initiator_name, initiator_id):
         self.status = Narration.NOT_STARTED
-        self.state = tonkadur.Tonkadur(story_file.filename)
+        self.state = tonkadur.Tonkadur(
+            story_file.filename,
+            initiator_name,
+            initiator_id
+        )
         self.is_paused = False
-        self.initiator_name = None
-        self.initiator_id = None
+        self.initiator_name = initiator_name
+        self.initiator_id = initiator_id
         self.next_input_min = 0
         self.next_input_max = 0
         self.text_options = []
@@ -22,6 +29,22 @@ class Narration:
         self.previous_output = ""
         self.story_file = story_file
         self.last_post_id = None
+
+        if (len(Narration.free_ids) > 0):
+            self.id = Narration.free_ids[0]
+            del Narration.free_ids[0]
+        else:
+            self.id = Narration.id_generator
+            Narration.id_generator += 1
+
+    def get_id (self):
+        return self.id
+
+    def get_initiator_name (self):
+        return self.initiator_name
+
+    def get_initiator_id (self):
+        return self.initiator_id
 
     def reset_next_input (self):
         self.next_input_type = None
@@ -153,6 +176,9 @@ class Narration:
 
         if (self.is_paused):
             self.last_post_id = None
+
+    def get_story_file (self):
+        return self.story_file
 
     def get_last_post_id (self):
         return self.last_post_id

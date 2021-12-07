@@ -35,14 +35,17 @@ parser.add_argument(
 
 parser.add_argument(
     '-a',
-    '--admin',
+    '--admins',
     type = str,
-    nargs='*',
-    help = 'Administrators',
+    help = 'Administrator tags, space separated.',
 )
 
 args = parser.parse_args()
-client = discord.Client()
+
+intents = discord.Intents.default()
+intents.members = True
+
+client = discord.Client(intents = intents)
 
 administrators = dict()
 active_narrations_by_post = dict()
@@ -57,6 +60,12 @@ class StoryFile:
         self.description = "No description."
         self.filename = filename
         self.narrations = []
+
+    def get_name (self):
+        return self.name
+
+    def get_filename (self):
+        return self.filename
 
 def get_command_help ():
     return \
@@ -112,14 +121,14 @@ def handle_add_admin_command (server, user_tag, requester_name, requester_id):
     )
 
     if (user is None):
-        return ("Unknown user '" + user_data + "'.", None)
+        return ("Unknown user '" + user_tag + "'.", None)
 
     if (user.id in administrators):
         return ("This user was already an administrator.", None)
 
     administrators[user.id] = user_tag
 
-    return (user_data + " is now an administrator.", None)
+    return (user_tag + " is now an administrator.", None)
 
 def handle_rm_admin_command (server, user_tag, requester_name, requester_id):
     global administrators
@@ -139,14 +148,14 @@ def handle_rm_admin_command (server, user_tag, requester_name, requester_id):
     )
 
     if (user is None):
-        return ("Unknown user '" + user_data + "'.", None)
+        return ("Unknown user '" + user_tag + "'.", None)
 
     if not (user.id in administrators):
         return ("This user is not an administrator.", None)
 
-    del administrators.remove[user.id]
+    del administrators[user.id]
 
-    return (user_data + " is no longer an administrator.", None)
+    return (user_tag + " is no longer an administrator.", None)
 
 def handle_add_story_file_command (story_filename, requester_name, requester_id):
     global administrators
@@ -355,6 +364,8 @@ def delete_narration (narration):
             except ValueError: # The narration wasn't found.
                 pass # That's not an issue.
 
+    Narration.free_ids.append(narration.get_id())
+
 def handle_end_narration_command (narration_id, requester_name, requester_id):
     global administrators
     global active_narrations_by_id
@@ -470,7 +481,7 @@ def handle_get_active_narration_list_command ():
         result += ")\nStarted by: "
         result += narration.get_initiator_name()
         result += "("
-        result += narration.get_initiator_id()
+        result += str(narration.get_initiator_id())
         result += ")\n"
 
         if (narration.get_is_paused()):
@@ -493,7 +504,7 @@ def handle_get_paused_narration_list_command ():
         result += ")\nStarted by: "
         result += narration.get_initiator_name()
         result += "("
-        result += narration.get_initiator_id()
+        result += str(narration.get_initiator_id())
         result += ")\n"
 
     return (result, None)
@@ -513,7 +524,7 @@ def handle_get_orphaned_narration_list_command ():
         result += ")\nStarted by: "
         result += narration.get_initiator_name()
         result += "("
-        result += narration.get_initiator_id()
+        result += str(narration.get_initiator_id())
         result += ")\n"
 
         if (narration.get_is_paused()):
@@ -530,7 +541,7 @@ def handle_get_administrator_list_command ():
         result += "\n - "
         result += administrators[admin_id]
         result += " ("
-        result += admin_id
+        result += str(admin_id)
         result += ")"
 
     return (result, None)
@@ -563,7 +574,7 @@ def handle_narrations_of_command (index):
         result += ")\nStarted by: "
         result += narration.get_initiator_name()
         result += "("
-        result += narration.get_initiator_id()
+        result += str(narration.get_initiator_id())
         result += ").\n"
 
         if (narration.get_is_paused()):
@@ -588,19 +599,20 @@ def handle_start_narration_command (index, requester_name, requester_id):
                 None
             )
 
-    new_narration = Narration(
+    new_narration = narration.Narration(
         available_stories[index],
         requester_name,
         requester_id
     )
     active_narrations_by_id[new_narration.get_id()] = new_narration
-    new_narration.run()
+    new_narration.run(requester_name, requester_id)
 
-    return (new_story.pop_output(), new_narration)
+    return (new_narration.pop_output_string(), new_narration)
 
 ################################################################################
 ### EVENT HANDLING #############################################################
 ################################################################################
+
 def handle_possible_command (message):
     print("Was mentioned.")
 
@@ -775,9 +787,9 @@ def handle_possible_story_answer (message):
             message.author.id
         )
 
-        del active_narrations_by_post[narration.get_last_post_id()]
-        narration.update_last_post_id(msg_id_replied_to)
-        active_narrations_by_post[msg_id_replied_to] = narration
+#        del active_narrations_by_post[narration.get_last_post_id()]
+#        narration.update_last_post_id(msg_id_replied_to)
+#        active_narrations_by_post[msg_id_replied_to] = narration
 
         if (narration.has_output()):
             result += narration.pop_output_string()
@@ -797,12 +809,12 @@ def replace_narration_post_id (narration, new_post_id):
     if (narration.get_is_paused()):
         return
 
-    if (narration.get_post_id() is not None):
-        del active_narrations_by_post[narration.get_post_id()]
+    if (narration.get_last_post_id() is not None):
+        del active_narrations_by_post[narration.get_last_post_id()]
 
     narration.set_last_post_id(new_post_id)
 
-    active_narrations_by_post[new_post_id]
+    active_narrations_by_post[new_post_id] = narration
 
 
 @client.event
@@ -822,9 +834,9 @@ async def on_message (message):
             )
 
             if (maybe_narrative is not None):
-                replace_narrative_post_id(
+                replace_narration_post_id(
                     maybe_narrative,
-                    sent_message.reference.message_id
+                    sent_message.id
                 )
 
         return
@@ -842,9 +854,9 @@ async def on_message (message):
             )
 
             if (maybe_narrative is not None):
-                replace_narrative_post_id(
+                replace_narration_post_id(
                     maybe_narrative,
-                    sent_message.reference.message_id
+                    sent_message.id
                 )
 
         return
@@ -855,5 +867,30 @@ def i_am_mentioned (mentions):
             return True
 
     return False
+
+@client.event
+async def on_ready ():
+    global args
+
+    for admin in args.admins.split(' '):
+        user_data = admin.split('#')
+
+        if (len(user_data) != 2):
+            print("Invalid user tag for admins. Use something like nsensfel#0001.")
+            continue
+
+        user = discord.utils.get(
+            client.users,
+            name = user_data[0],
+            discriminator = user_data[1]
+        )
+
+        if (user is None):
+            print("Unknown user '" + admin + "' could not be added as admin.")
+            continue
+
+        administrators[user.id] = admin
+
+    args.admins = []
 
 client.run(args.token)
