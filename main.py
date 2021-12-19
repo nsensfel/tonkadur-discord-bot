@@ -364,7 +364,7 @@ def delete_narration (narration):
             except ValueError: # The narration wasn't found.
                 pass # That's not an issue.
 
-    Narration.free_ids.append(narration.get_id())
+    narration.finalize()
 
 def handle_end_narration_command (narration_id, requester_name, requester_id):
     global administrators
@@ -376,8 +376,8 @@ def handle_end_narration_command (narration_id, requester_name, requester_id):
     narration = active_narrations_by_id[narration_id]
 
     if (
-        (requestor_id not in administrators)
-        and (narration.get_requestor_id != requestor_id)
+        (requester_id not in administrators)
+        and (narration.get_initiator_id() != requester_id)
     ):
         return (
             "Denied. You are not an administrator or this narration's initiator.",
@@ -388,7 +388,7 @@ def handle_end_narration_command (narration_id, requester_name, requester_id):
 
     return ("Narration " + str(narration_id) + " ended.", None)
 
-def handle_pause_narration_command (narration_id, requestor_name, requestor_id):
+def handle_pause_narration_command (narration_id, requester_name, requester_id):
     global administrators
     global active_narrations_by_post
     global active_narrations_by_id
@@ -400,8 +400,8 @@ def handle_pause_narration_command (narration_id, requestor_name, requestor_id):
     narration = active_narrations_by_id[narration_id]
 
     if (
-        (requestor_id not in administrators)
-        and (narration.get_requestor_id != requestor_id)
+        (requester_id not in administrators)
+        and (narration.get_initiator_id() != requester_id)
     ):
         return (
             "Denied. You are not an administrator or this narration's initiator.",
@@ -417,7 +417,7 @@ def handle_pause_narration_command (narration_id, requestor_name, requestor_id):
 
         return ("Narration paused", None)
 
-def handle_resume_narration_command (narration_id, requestor_name, requestor_id):
+def handle_resume_narration_command (narration_id, requester_name, requester_id):
     global administrators
     global active_narrations_by_post
     global active_narrations_by_id
@@ -428,8 +428,8 @@ def handle_resume_narration_command (narration_id, requestor_name, requestor_id)
     narration = active_narrations_by_id[narration_id]
 
     if (
-        (requestor_id not in administrators)
-        and (narration.get_requestor_id != requestor_id)
+        (requester_id not in administrators)
+        and (narration.get_initiator_id() != requester_id)
     ):
         return (
             "Denied. You are not an administrator or this narration's initiator.",
@@ -822,40 +822,40 @@ async def on_message (message):
     print("message: " + message.clean_content)
 
     if message.reference is not None:
-        (output, maybe_narrative) = handle_possible_story_answer(message)
+        (output, maybe_narration) = handle_possible_story_answer(message)
 
         if (len(output) > 0):
-            if (maybe_narrative is not None):
-                output += "\n\nReply to this message to continue the narrative."
+            if (maybe_narration is not None):
+                output += "\n\nReply to this message to continue the narration."
 
             sent_message = await message.channel.send(
                 content = output,
                 reference = message
             )
 
-            if (maybe_narrative is not None):
+            if (maybe_narration is not None):
                 replace_narration_post_id(
-                    maybe_narrative,
+                    maybe_narration,
                     sent_message.id
                 )
 
         return
 
     if i_am_mentioned(message.mentions):
-        (output, maybe_narrative) = handle_possible_command(message)
+        (output, maybe_narration) = handle_possible_command(message)
 
         if (len(output) > 0):
-            if (maybe_narrative is not None):
-                output += "\n\nReply to this message to continue the narrative."
+            if (maybe_narration is not None):
+                output += "\n\nReply to this message to continue the narration."
 
             sent_message = await message.channel.send(
                 content = output,
                 reference = message
             )
 
-            if (maybe_narrative is not None):
+            if (maybe_narration is not None):
                 replace_narration_post_id(
-                    maybe_narrative,
+                    maybe_narration,
                     sent_message.id
                 )
 

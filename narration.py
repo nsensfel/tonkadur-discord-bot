@@ -77,7 +77,7 @@ class Narration:
             and (len(text) <= self.next_input_max)
         ):
             self.status = Narration.IS_RUNNING
-            self.state.store_string(user_input, actor_name, actor_id)
+            self.state.store_string(text, actor_name, actor_id)
             self.run(actor_name, actor_id)
         else:
             self.display_string(
@@ -87,6 +87,9 @@ class Narration:
                 + str(self.next_input_max)
                 + "] range."
             )
+
+    def finalize (self):
+        Narration.free_ids.append(self.id)
 
     def handle_option_input (self, text, actor_name, actor_id):
         user_input = int(text)
